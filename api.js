@@ -146,7 +146,6 @@ exports.setApp = function (app, client) {
                     Location: location, 
                     Login: login, 
                     Password: hashedPassword, 
-                    Location: location, 
                     Favorites: [], 
                     Listings: []
                 };
