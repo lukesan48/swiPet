@@ -1,59 +1,51 @@
-require('express');
-require('mongodb');
+const express = require('express');
+const mongodb = require('mongodb');
+const bcrypt = require('bcrypt');
+
 exports.setApp = function (app, client) {
 
     // Put database name here, so can use to specify
     // database to be used
-    const dbName = 'COP4331Cards';
+    const dbName = 'swiPet';
 
-    // app.post('/api/addcard', async (req, res, next) => {
-    //     // incoming: userId, color
-    //     // outgoing: error
-    //     const { userId, card } = req.body;
-
-    //     const newCard = { Card: card, UserId: userId };
-    //     var error = '';
-
-    //     try {
-    //         // dbName to be used to connect to client like so
-    //         // to specify database to be used
-    //         const db = client.db(dbName);
-    //         const result = db.collection('Cards').insertOne(newCard);
-    //     }
-    //     catch (e) {
-    //         error = e.toString();
-    //     }
-
-    //     var ret = { error: error };
-    //     res.status(200).json(ret);
-    // });
-
-
-
-    // Generic login api
+    // Modified login api
     app.post('/api/login', async (req, res, next) => {
         // incoming: login, password
         // outgoing: id, firstName, lastName, error
 
-        var error = '';
+        // Need to initialize ret outside of
+        // conditional statements...
+        let ret = {};
+
+        let message = '';
 
         const { login, password } = req.body;
 
         // Same dbName here
         const db = client.db(dbName);
-        const results = await db.collection('Users').find({ Login: login, Password: password }).toArray();
+        const user = await db.collection('User').findOne({ Login: login });
 
-        var id = -1;
-        var fn = '';
-        var ln = '';
+        // A user's login is found
+        if (user) {
+            const passwordMatch = await bcrypt.compare(password, user.Password);
 
-        if (results.length > 0) {
-            id = results[0].UserId;
-            fn = results[0].FirstName;
-            ln = results[0].LastName;
+            // Password matches
+            if (passwordMatch) {
+                ret = { id: user._id, firstName: user.FirstName, lastName: user.LastName, message: message };
+            }
+
+            // Password doesn't match
+            else {
+                message = "Invalid credentials";
+                ret = { message: message };
+            }
+        }
+        // User's login not found
+        else {
+            message = "User not found";
+            ret = { message: message };
         }
 
-        var ret = { id: id, firstName: fn, lastName: ln, error: '' };
         res.status(200).json(ret);
     });
 
@@ -71,16 +63,27 @@ exports.setApp = function (app, client) {
 
         try {
             // Search for user
-            const user = await db.collection("Users").findOne({ Login: login, Password: password });
+            // Since hashing password, search for login only
+            // password will be checked later
+            const user = await db.collection("User").findOne({ Login: login });
 
-            // If user is found... delete user!
+            // If user is found... cast delete user!
             if (user) {
-                const result = db.collection("Users").deleteOne({ _id: user._id });
+                // Compare password and hashed password in database
+                const passwordMatch = bcrypt.compare(password, user.Password);
 
-                message = "User deleted!";
+                // If passwords match... cast delete
+                if (passwordMatch) {
+                    const result = db.collection("User").deleteOne({ _id: user._id });
+                    message = "User deleted";
+                }
+
+                else {
+                    message = "Incorrect credentials";
+                }
             }
             else {
-                message = "Incorrect credentials!";
+                message = "Invalid user";
             }
         } catch (e) {
             message = e.toString();
@@ -88,36 +91,24 @@ exports.setApp = function (app, client) {
 
         let ret = { message: message };
         res.status(200).json(ret);
-
-    })
-
-    // Create pet listing api; should store pet's id in user's listings array
-    // for search/filtering later
-    app.post("/api/createPetListing", async (req, res, next) => {
-        // incoming:
-        // outgoing: 
-
-        let message = "";
-
-        // const {}
     });
 
-    // Remove pet listing api; should delete pet and delete
-    // the pet id in user's listings
-    app.post("/api/deletePetListing", async (req, res, next) => {
-        // incoming:
-        // outgoing: 
+    // Update user api
+    app.post("/api/updateUser", async (req, res, next) => {
 
-        let message = "";
+    });
 
-        // const {}
+    // Forgot password api
+    app.post("/api/forgotPassword", async (req, res, next) => {
+
     });
 
     // Register api
+    // Need to implement password hashing via bcrypt - to do
     app.post("/api/register", async (req, res, next) => {
         // incoming: firstName, lastName, login, password
         // outgoing: id, firstName, lastName, email, message
-        const { firstName, lastName, email, location, login, password } = req.body;
+        const { firstName, lastName, email, phoneNumber, location, login, password } = req.body;
         let message = '';
         let id = -1;
 
@@ -129,17 +120,38 @@ exports.setApp = function (app, client) {
         try {
             // findOne finds one instance, which there should only be one
             // instance of a login anyways
-            const existingUser = await db.collection("Users").findOne({ Login: login });
+            const existingUser = await db.collection("User").findOne({ Login: login });
 
             // If user is found, don't do anything
             if (existingUser) {
                 message = "User already exists..."
             }
             else {
-                // No user with login found, so make new user
-                const newUser = { FirstName: firstName, LastName: lastName, Email: email, Location: location, Login: login, Password: password, Location: location, Favorites: [], Listings: [] };
+                
+                //== bCrypt stuff... ==
+                // Essentially determines how long is spent
+                // on hashing password; higher is better, but
+                // takes longer to hash
+                const saltRounds = 12;
+                // Hash call
+                const hashedPassword = await bcrypt.hash(password, saltRounds);
+                //== End of bCrypt stuff... ==
 
-                const result = await db.collection("Users").insertOne(newUser);
+                // No user with login found, so make new user
+                const newUser = {
+                    FirstName: firstName, 
+                    LastName: lastName, 
+                    Email: email,
+                    PhoneNumber: phoneNumber,
+                    Location: location, 
+                    Login: login, 
+                    Password: hashedPassword, 
+                    Location: location, 
+                    Favorites: [], 
+                    Listings: []
+                };
+
+                const result = await db.collection("User").insertOne(newUser);
                 id = result.insertedId;
             }
 
@@ -148,31 +160,11 @@ exports.setApp = function (app, client) {
         }
 
         // probably dont want  to return login and password here...
-        let ret = { id: id, firstName: firstName, lastName: lastName, email: email, location: location, error: error }
+        let ret = { id: id, firstName: firstName, lastName: lastName, email: email, message: message }
         res.status(200).json(ret);
     });
 
-
-
-    app.post('/api/searchcards', async (req, res, next) => {
-        // incoming: userId, search
-        // outgoing: results[], error
-
-        var error = '';
-
-        const { userId, search } = req.body;
-        var _search = search.trim();
-
-        // Same dbName here
-        const db = client.db(dbName);
-        const results = await db.collection('Cards').find({ "Card": { $regex: _search + '.*', $options: 'i' } }).toArray();
-
-        var _ret = [];
-        for (var i = 0; i < results.length; i++) {
-            _ret.push(results[i].Card);
-        }
-        var ret = { results: _ret, error: error };
-        res.status(200).json(ret);
+}   res.status(200).json(ret);
     });
 }
 
