@@ -1,6 +1,9 @@
 const express = require('express');
 const mongodb = require('mongodb');
 const bcrypt = require('bcrypt');
+const {ObjectId} = require('mongodb');
+require('mongodb');
+require('express');
 
 exports.setApp = function (app, client) {
 
@@ -162,6 +165,151 @@ exports.setApp = function (app, client) {
         let ret = { id: id, firstName: firstName, lastName: lastName, email: email, message: message }
         res.status(200).json(ret);
     });
+    
+    // API to add new pets to specific users and update their listings to reflect the new pet
+    app.post('/api/addpet', async (req, res) => {
+        
+        // incoming: userLogin, petName, type, petAge, petGender, breed, petSize, bio, contactEmail, location, images
+        // outgoing: message, petId
+          
+        const { userLogin, petName, type, petAge, petGender, breed, petSize, bio, contactEmail, location, images } = req.body;
+        let message = '';
+        let petId = null;
+        try {
+            // Connect to database
+            const db = client.db(dbName);
+            
+            // Checks if there is a valid user to create the pet, if there is then create the pet
+            const user = await db.collection('User').findOne({ Login: userLogin });
+            if (user) {
+                const newPet = {
+                Login: userLogin,
+                Pet_Name: petName,
+                Pet_Type: type,
+                Age: petAge,
+                Gender: petGender,
+                Breed: breed,
+                Size: petSize,
+                Bio: bio,
+                Contact_Email: contactEmail,
+                Location: location,
+                Images: images || []
+            };
+            // Insert new pet and their descriptions into database
+            const result = await db.collection('Pet').insertOne(newPet);
+                
+            // Needed to get the pet's ObjectId
+            petId = result.insertedId;
+                 
+            // Updates Listing of user who created the pet with the pet's ObjectId
+            await db.collection('User').updateOne(
+                { Login: userLogin },
+                { $push: { Listings: petId } }
+            );
+            message = "Pet Created";
+            } else {
+                message = "User does not exist";
+            }
+        } catch (e) {
+            message = e.toString();
+        }     
+        const ret = { message: message, petId: petId };
+        res.status(200).json(ret);
+    });
+
+    // API to add a pet to a user's favorites list
+    app.post('/api/addfavorite', async (req, res) => {
+        
+        // incoming: userLogin, petId
+        // outgoing: message
+        
+        const { userLogin, petId } = req.body;
+        let message = '';
+        try {
+            // Connect to the database
+            const db = client.db(dbName);
+            
+            // Checks if there is a valid user
+            const user = await db.collection('User').findOne({ Login: userLogin });
+            if (user) {
+                const objectId = new ObjectId(petId);
+                
+                // Check if there is a valid pet as well
+                const pet = await db.collection('Pet').findOne({ _id: objectId });
+                
+                // If there is a valid user and a valid pet, add that pet to the user's favorited pets
+                if (pet) {
+                    await db.collection('User').updateOne(
+                    { Login: userLogin },
+                    { $addToSet: { Favorites: objectId } } 
+                );
+                message = "Pet added to favorites";
+                } else {
+                    message = "Pet not found";
+                }
+            } else {
+                message = "User does not exist";
+            }
+        } catch (e) {
+            message = e.toString();
+        }
+        const ret = { message: message };
+        res.status(200).json(ret);
+    });
+
+    // API to delete a pet and the listing of the original user who uploaded the pet (as well as from the favorites list of anyone who has that pet favorited)
+    app.post('/api/deletepet', async (req, res) => {
+        
+        // incoming: userLogin, petId
+        // outgoing: message
+  
+        const { userLogin, petId } = req.body;
+        let message = '';
+        try {
+            // Connect to database
+            const db = client.db(dbName);
+            const user = await db.collection('User').findOne({ Login: userLogin });
+            
+            // If there is a valid user, proceed to see if the pet is in the database
+            if (user) {
+                const objectId = new ObjectId(petId);
+                const pet = await db.collection('Pet').findOne({ _id: objectId });
+                
+                // If the pet is in the database, proceed with deletion
+                if (pet) {
+
+                    // If the user that created the pet does not matche with the user that was inputted, return error
+                    if (pet.Login !== userLogin) {
+                        message = "You do not have permission to delete this pet";
+                    } else {
+                        // Delete from the pet collection
+                        await db.collection('Pet').deleteOne({ _id: pet._id });
+                        
+                        // Update the creator's listings to remove it
+                        await db.collection('User').updateOne(   
+                            { Login: userLogin },
+                            { $pull: { Listings: pet._id } }
+                        );
+
+                        // Update all favorite's lists in all users so that it reflects that the pet was deleted
+                        await db.collection('User').updateMany(
+                            { Favorites: pet._id },
+                            { $pull: { Favorites: pet._id } } 
+                        );
+                    message = "Pet deleted successfully and removed from all favorites";
+                    }
+                } else {
+                    message = "Pet not found";
+                }
+            } else {
+                message = "User does not exist";
+            }
+        } catch (e) {
+            message = e.toString();
+        }
+        const ret = { message: message };
+        res.status(200).json(ret);    
+    });
 
 }   res.status(200).json(ret);
     });
@@ -202,7 +350,7 @@ exports.setApp = function (app, client) {
 //     const { login, password } = req.body;
 
 //     const db = client.db('COP4331Cards');
-//     const results = await db.collection('Users').find({ Login: login, Password: password }).toArray();
+//     const results = await db.collection('User').find({ Login: login, Password: password }).toArray();
 
 //     var id = -1;
 //     var fn = '';
