@@ -11,6 +11,9 @@ exports.setApp = function (app, client) {
     // database to be used
     const dbName = 'swiPet';
 
+    // JWT 'middleware'
+    const token = require('./createJWT.js');
+
     // Modified login api
     app.post('/api/login', async (req, res, next) => {
         // incoming: login, password
@@ -32,12 +35,18 @@ exports.setApp = function (app, client) {
         if (user) {
 
             // Check to see if email verified
-            if (user.Verified) {
+            if (!user.Verified) {
+                message = "Please verify your email before logging in";
+                ret = { message: message };
+            } else {
                 const passwordMatch = await bcrypt.compare(password, user.Password);
 
                 // Password matches
                 if (passwordMatch) {
-                    ret = { id: user._id, firstName: user.FirstName, lastName: user.LastName, message: message };
+                    // Create JWT
+                    let jwtToken = token.createToken(user.FirstName, user.LastName, user._id);
+
+                    ret = { id: user._id, firstName: user.FirstName, lastName: user.LastName, jwtToken: jwtToken.accessToken, message: message };
                 }
 
                 // Password doesn't match
@@ -45,9 +54,6 @@ exports.setApp = function (app, client) {
                     message = "Invalid credentials";
                     ret = { message: message };
                 }
-            } else {
-                message = "Please verify your email before logging in";
-                ret = { message: message };
             }
 
         }
@@ -63,12 +69,18 @@ exports.setApp = function (app, client) {
 
     // Delete user api; should delete user from database...
     app.post("/api/deleteUser", async (req, res, next) => {
-        // incoming: login, password
+        // incoming: login, password, jwtToken
         // outgoing: message
 
         let message = "";
 
-        const { login, password } = req.body;
+        const { login, password, jwtToken } = req.body;
+
+        // JWT
+        if (token.isExpired(jwtToken)) {
+            res.status(200).json({ message: 'The JWT is invalid'});
+            return;
+        }
 
         const db = client.db(dbName);
 
@@ -100,7 +112,10 @@ exports.setApp = function (app, client) {
             message = e.toString();
         }
 
-        let ret = { message: message };
+        // Refresh JWT
+        let refreshedToken = token.refresh(jwtToken);
+
+        let ret = { message: message, jwtToken: refreshedToken };
         res.status(200).json(ret);
     });
 
@@ -108,9 +123,15 @@ exports.setApp = function (app, client) {
     app.post("/api/updateUser", async (req, res, next) => {
         // incoming: login, firstName, lastName, email, phoneNumber, location
         // outgoing: (new/same - firstName, lastName, email, phoneNumber, location), message
-        const { login, firstName, lastName, email, phoneNumber, location } = req.body;
+        const { login, firstName, lastName, email, phoneNumber, location, jwtToken } = req.body;
 
         let message = '';
+
+        if (token.isExpired(jwtToken)) {
+            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            res.status(200).json(ret);
+            return;
+        }
 
         const db = client.db(dbName);
         const collection = db.collection('User');
@@ -155,7 +176,8 @@ exports.setApp = function (app, client) {
             message = "User not found";
         }
 
-        let ret = { message: message };
+        let refreshedToken = token.refresh(jwtToken);
+        let ret = { message: message, jwtToken: refreshedToken.accessToken };
         res.status(200).json(ret);
     });
 
@@ -163,8 +185,14 @@ exports.setApp = function (app, client) {
     app.post("/api/forgotPassword", async (req, res, next) => {
         // incoming: login, email, newPassword
         // outgoing: newPassword
-        const { login, email, newPassword } = req.body;
+        const { login, email, newPassword, jwtToken } = req.body;
         let message = '';
+
+        if (token.isExpired(jwtToken)) {
+            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            res.status(200).json(ret);
+            return;
+        }
 
         const db = client.db(dbName);
         const collection = db.collection('User');
@@ -195,14 +223,15 @@ exports.setApp = function (app, client) {
             message = 'No such login/email';
         }
 
-
-        let ret = { message: message };
+        let refreshedToken = token.refresh(jwtToken);
+        let ret = { message: message, jwtToken: refreshedToken.accessToken };
         res.status(200).json(ret);
     });
 
     // Register api
     // Need to implement password hashing via bcrypt - done
     // Need to implement email verification - done
+    // No JWT for register, since ya know, register
     app.post("/api/register", async (req, res, next) => {
         // incoming: firstName, lastName, login, password
         // outgoing: id, firstName, lastName, email, message
@@ -290,7 +319,7 @@ exports.setApp = function (app, client) {
         res.status(200).json(ret);
     });
 
-    // verify email api
+    // Verify email api
     app.get('/api/verifyEmail', async (req, res, next) => {
         const { token } = req.query;
         const db = client.db(dbName);
@@ -325,9 +354,16 @@ exports.setApp = function (app, client) {
         // incoming: userLogin, petName, type, petAge, petGender, breed, petSize, bio, contactEmail, location, images
         // outgoing: message, petId
 
-        const { userLogin, petName, type, petAge, petGender, breed, petSize, bio, contactEmail, location, images } = req.body;
+        const { userLogin, petName, type, petAge, petGender, breed, petSize, bio, contactEmail, location, images, jwtToken } = req.body;
         let message = '';
         let petId = null;
+
+        if (token.isExpired(jwtToken)) {
+            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            res.status(200).json(ret);
+            return;
+        }
+
         try {
             // Connect to database
             const db = client.db(dbName);
@@ -366,7 +402,9 @@ exports.setApp = function (app, client) {
         } catch (e) {
             message = e.toString();
         }
-        const ret = { message: message, petId: petId };
+
+        let refreshedToken = token.refresh(jwtToken);
+        const ret = { message: message, petId: petId, jwtToken: refreshedToken.accessToken };
         res.status(200).json(ret);
     });
 
@@ -376,8 +414,15 @@ exports.setApp = function (app, client) {
         // incoming: userLogin, petId
         // outgoing: message
 
-        const { userLogin, petId } = req.body;
+        const { userLogin, petId, jwtToken } = req.body;
         let message = '';
+
+        if (token.isExpired(jwtToken)) {
+            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            res.status(200).json(ret);
+            return;
+        }
+
         try {
             // Connect to the database
             const db = client.db(dbName);
@@ -406,7 +451,9 @@ exports.setApp = function (app, client) {
         } catch (e) {
             message = e.toString();
         }
-        const ret = { message: message };
+
+        let refreshedToken = token.refresh(jwtToken);
+        const ret = { message: message, jwtToken: refreshedToken.accessToken };
         res.status(200).json(ret);
     });
 
@@ -416,8 +463,15 @@ exports.setApp = function (app, client) {
         // incoming: userLogin, petId
         // outgoing: message
 
-        const { userLogin, petId } = req.body;
+        const { userLogin, petId, jwtToken } = req.body;
         let message = '';
+
+        if (token.isExpired(jwtToken)) {
+            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            res.status(200).json(ret);
+            return;
+        }
+
         try {
             // Connect to database
             const db = client.db(dbName);
@@ -460,7 +514,9 @@ exports.setApp = function (app, client) {
         } catch (e) {
             message = e.toString();
         }
-        const ret = { message: message };
+
+        let refreshedToken = token.refresh(jwtToken);
+        const ret = { message: message, jwtToken: refreshedToken.accessToken };
         res.status(200).json(ret);
     });
 
