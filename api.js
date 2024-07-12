@@ -78,7 +78,7 @@ exports.setApp = function (app, client) {
 
         // JWT
         if (token.isExpired(jwtToken)) {
-            res.status(200).json({ message: 'The JWT is invalid'});
+            res.status(200).json({ message: 'The JWT is invalid' });
             return;
         }
 
@@ -177,54 +177,7 @@ exports.setApp = function (app, client) {
         }
 
         let refreshedToken = token.refresh(jwtToken);
-        let ret = { message: message, jwtToken: refreshedToken.accessToken };
-        res.status(200).json(ret);
-    });
-
-    // Forgot password api
-    app.post("/api/forgotPassword", async (req, res, next) => {
-        // incoming: login, email, newPassword
-        // outgoing: newPassword
-        const { login, email, newPassword, jwtToken } = req.body;
-        let message = '';
-
-        if (token.isExpired(jwtToken)) {
-            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
-            res.status(200).json(ret);
-            return;
-        }
-
-        const db = client.db(dbName);
-        const collection = db.collection('User');
-
-        // Find based off email AND login, incase same email
-        let user = await collection.findOne({ Login: login, Email: email });
-        // console.log(user);
-
-        if (user) {
-            if (user.Verified) {
-                // Make sure to hash new password
-                const saltRounds = 12;
-                const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
-
-                // Filter based off login, since unique
-                const result = await collection.updateOne(
-                    { Login: login },
-                    { $set: { Password: hashedPassword } }
-                );
-
-                message = 'Password updated successfully';
-            }
-            else {
-                message = 'Please verify your email before changing password';
-            }
-        }
-        else {
-            message = 'No such login/email';
-        }
-
-        let refreshedToken = token.refresh(jwtToken);
-        let ret = { message: message, jwtToken: refreshedToken.accessToken };
+        const ret = { message: message, jwtToken: refreshedToken.accessToken };
         res.status(200).json(ret);
     });
 
@@ -296,6 +249,7 @@ exports.setApp = function (app, client) {
                 });
 
                 // The email itself
+                const verificationLink = `http://localhost:5000/api/verifyEmail?token=${token}`;
                 const mailOptions = {
                     from: process.env.EMAIL_USER,
                     to: email,
@@ -303,7 +257,7 @@ exports.setApp = function (app, client) {
                     // website format: http://domain/api/verify-email?token=${token}
                     // in this case locally since testing
                     // Need to use backtick here for ${token}
-                    text: `Please verfiy your swiPet account by clicking on the follow link... http://localhost:5000/api/verifyEmail?token=${token}`
+                    text: `Please verfiy your swiPet account by clicking on the follow link... ${verificationLink}`
                 };
 
                 await transporter.sendMail(mailOptions);
@@ -315,7 +269,7 @@ exports.setApp = function (app, client) {
         }
 
         // probably dont want  to return login and password here...
-        let ret = { id: id, firstName: firstName, lastName: lastName, email: email, message: message }
+        const ret = { id: id, firstName: firstName, lastName: lastName, email: email, message: message }
         res.status(200).json(ret);
     });
 
@@ -329,22 +283,141 @@ exports.setApp = function (app, client) {
         try {
 
             // Decode token and get userId from it
-            const decodedToken= jwt.verify(token, process.env.JWT_SECRET);
+            const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
             const userId = decodedToken.userId;
 
-            // Find userId and edit Verified boolean
-            // Need new ObjectId here
-            await db.collection('User').updateOne(
-                { _id: new ObjectId(userId) },
-                { $set: { Verified: true } }
-            );
+            const user = await db.collection('User').findOne({ _id: new ObjectId(userId) });
 
-            message = 'Email verified successfully';
+            // Check to see if user is already verified
+            if (user.Verified) {
+                message = 'Email already verified';
+            }
+            else {
+                // Find userId and edit Verified boolean
+                // Need new ObjectId here
+                await db.collection('User').updateOne(
+                    { _id: new ObjectId(userId) },
+                    { $set: { Verified: true } }
+                );
+
+                message = 'Email verified successfully';
+            }
+
         } catch (e) {
-            message = 'Invalid or expired token';
+            message = e.toString();
         }
 
-        ret = { message : message };
+        const ret = { message: message };
+        res.status(200).json(ret);
+    });
+
+    // Forgot password api
+    // Sending email similar to email verification api
+    app.post("/api/forgotPassword", async (req, res, next) => {
+        // incoming: email, jwtToken
+        // outgoing: message
+        const { email } = req.body;
+        let message = '';
+
+        const db = client.db(dbName);
+
+
+        try {
+            const user = await db.collection('User').findOne({ Email: email });
+
+            if (!user) {
+                message = 'User not found';
+            }
+            else {
+                // Token for password reset - should only last 10 mins
+                const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '10m' });
+
+                // Database to manage one time link
+                await db.collection('PasswordResetTokens').insertOne({
+                    userId: user._id,
+                    token: token,
+                    used: false
+                });
+
+                const transporter = nodemailer.createTransport({
+                    service: 'gmail',
+                    auth: {
+                        user: process.env.EMAIL_USER,
+                        pass: process.env.EMAIL_PASS
+                    }
+                });
+
+                const resetLink = `http://localhost:5000/api/resetPassword?token=${token}`;
+                const mailOptions = {
+                    from: process.env.EMAIL_USER,
+                    to: email,
+                    subject: 'Password Reset for swiPet',
+                    text: `Reset your swiPet account password by clicking on the follow link... ${resetLink}`
+                };
+
+                await transporter.sendMail(mailOptions);
+                message = 'Password reset email sent';
+            }
+
+        } catch (e) {
+            message = e.toString();
+        }
+
+        const ret = { message: message };
+        res.status(200).json(ret);
+    });
+
+    // Reset password api
+    app.post('/api/resetPassword', async (req, res, next) => {
+        // incoming: token, newPassword
+        // outgoing: message
+        const { token, newPassword } = req.body;
+        let message = '';
+
+        const db = client.db(dbName);
+
+        // Get token from database
+        const checkToken = await db.collection('PasswordResetTokens').findOne({ token: token });
+
+        if (!checkToken) {
+            let ret = { message: 'Invalid token' };
+            res.status(200).json(ret);
+            return;
+        }
+
+        // Check if token is used
+        if (checkToken.used) {
+            message = 'Token already used';
+        }
+
+        else {
+            try {
+                const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
+                const userId = decodedToken.userId;
+
+                // Don't forget to hash new password...
+                const saltRounds = 12;
+                const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+
+                await db.collection('User').updateOne(
+                    { _id: new ObjectId(userId) },
+                    { $set: { Password: hashedPassword } }
+                );
+
+                // Update used to true
+                await db.collection('PasswordResetTokens').updateOne(
+                    { token: token },
+                    { $set: { used: true }}
+                );
+
+                message = 'Password reset successfully';
+
+            } catch (e) {
+                message = e.toString();
+            }
+        }
+
+        const ret = { message: message };
         res.status(200).json(ret);
     });
 
