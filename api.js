@@ -424,10 +424,10 @@ exports.setApp = function (app, client) {
     // API to add new pets to specific users and update their listings to reflect the new pet
     app.post('/api/addpet', async (req, res) => {
 
-        // incoming: userLogin, petName, type, petAge, petGender, breed, petSize, bio, contactEmail, location, images
+        // incoming: userLogin, petName, type, petAge, petGender, breed, petSize, bio, contactEmail, location, images, adoptionFee
         // outgoing: message, petId
 
-        const { userLogin, petName, type, petAge, petGender, breed, petSize, bio, contactEmail, location, images, jwtToken } = req.body;
+        const { userLogin, petName, type, petAge, petGender, breed, petSize, bio, contactEmail, location, images, adoptionFee, jwtToken } = req.body;
         let message = '';
         let petId = null;
 
@@ -455,7 +455,8 @@ exports.setApp = function (app, client) {
                     Bio: bio,
                     Contact_Email: contactEmail,
                     Location: location,
-                    Images: images || []
+                    Images: images || [],
+                    AdoptionFee: adoptionFee
                 };
                 // Insert new pet and their descriptions into database
                 const result = await db.collection('Pet').insertOne(newPet);
@@ -571,7 +572,6 @@ exports.setApp = function (app, client) {
     
     // API to delete a pet and the listing of the original user who uploaded the pet (as well as from the favorites list of anyone who has that pet favorited)
     app.post('/api/deletepet', async (req, res) => {
-
         // incoming: userLogin, petId
         // outgoing: message
 
@@ -634,89 +634,90 @@ exports.setApp = function (app, client) {
 
     // API endpoint to update pet listings (only people who created are able to edit it)
     app.post("/api/updatepet", async (req, res, next) => {
-    // incoming: userLogin, petId, petName, type, petAge, petGender, color, breed, petSize, bio, contactEmail, location, images
-    // outgoing: message
-
-    const { userLogin, petId, petName, type, petAge, petGender, color, breed, petSize, bio, contactEmail, location, images } = req.body;
-    let message = '';
-    try {
-        const db = client.db(dbName);
-        const objectId = new ObjectId(petId);
-        const pet = await db.collection('Pet').findOne({ _id: objectId });
-
-        // Check to see if there is a valid pet and the original user is the one trying to delete it
-        if (pet) {
-            if (pet.Login !== userLogin) {
-                message = "You do not have permission to update this pet";
-            } else {
-                let updatedPet = { 
-                    Pet_Name: petName,
-                    Pet_Type: type,
-                    Age: petAge,
-                    Gender: petGender,
-                    Color: color,
-                    Breed: breed,
-                    Size: petSize,
-                    Bio: bio,
-                    Contact_Email: contactEmail,
-                    Location: location,
-                    Images: images || []
-                };
-
-                // If fields are left blank, keep original data for those fields
-                updatedPet = JSON.parse(JSON.stringify(updatedPet));
-
-                // Set the updated pet description
-                const result = await db.collection('Pet').updateOne(
-                    { _id: objectId },
-                    { $set: updatedPet });
-
-                // Check to see if anything was updated
-                if (result.modifiedCount === 0) {
-                    message = "No changes made to the pet information";
+        // incoming: userLogin, petId, petName, type, petAge, petGender, color, breed, petSize, bio, contactEmail, location, images, adoptionFee
+        // outgoing: message
+    
+        const { userLogin, petId, petName, type, petAge, petGender, color, breed, petSize, bio, contactEmail, location, images, adoptionFee } = req.body;
+        let message = '';
+        try {
+            const db = client.db(dbName);
+            const objectId = new ObjectId(petId);
+            const pet = await db.collection('Pet').findOne({ _id: objectId });
+    
+            // Check to see if there is a valid pet and the original user is the one trying to delete it
+            if (pet) {
+                if (pet.Login !== userLogin) {
+                    message = "You do not have permission to update this pet";
                 } else {
-                    message = "Pet information updated successfully";
+                    let updatedPet = { 
+                        Pet_Name: petName,
+                        Pet_Type: type,
+                        Age: petAge,
+                        Gender: petGender,
+                        Color: color,
+                        Breed: breed,
+                        Size: petSize,
+                        Bio: bio,
+                        Contact_Email: contactEmail,
+                        Location: location,
+                        Images: images || [],
+                        AdoptionFee: adoptionFee
+                    };
+    
+                    // If fields are left blank, keep original data for those fields
+                    updatedPet = JSON.parse(JSON.stringify(updatedPet));
+    
+                    // Set the updated pet description
+                    const result = await db.collection('Pet').updateOne(
+                        { _id: objectId },
+                        { $set: updatedPet });
+    
+                    // Check to see if anything was updated
+                    if (result.modifiedCount === 0) {
+                        message = "No changes made to the pet information";
+                    } else {
+                        message = "Pet information updated successfully";
+                    }
                 }
+            } else {
+                message = "Pet not found";
             }
-        } else {
-            message = "Pet not found";
+        } catch (e) {
+          message = e.toString();
         }
-    } catch (e) {
-      message = e.toString();
-    }
-    let ret = { message: message };
-    res.status(200).json(ret);
+        let ret = { message: message };
+        res.status(200).json(ret);
     });
 
     // Search Pet API Endpoint that uses the fields of the pet descriptions (like color, breed, age, etc.)
     app.post("/api/searchpet", async (req, res, next) => {
-    // incoming: userLogin, type, petAge, petGender, breed, petSize, location
-    // outgoing: matching pets
-      
-    const { userLogin, type, petAge, petGender, breed, petSize, location } = req.body;
-    let message = '';
-    try {
-        // Connect to database
-        const db = client.db(dbName);
-        
-        // Make sure to get user login so it does not display user's listed pets
-        // Make sure the fields are inputted, if not then ignore
-        let search = { Login: { $ne: userLogin}};
-        if (type != null) search.Pet_Type = type;
-        if (petAge != null) search.Age = petAge;
-        if (petGender != null) search.Gender = petGender;
-        if (breed != null) search.Breed = breed;
-        if (petSize != null) search.Size = petSize;
-        if (location != null) search.Location = location;
-
-        // Search using the fields provided
-        const pets = await db.collection('Pet').find(search).toArray();
-        if (pets.length === 0){
-            message = "No pets found";
-        } else {
-            message = "Pets retrieved successfully";
-        }
-        res.status(200).json({ pets: pets, message: message });
+        // incoming: userLogin, type, petAge, petGender, breed, petSize, location
+        // outgoing: matching pets
+          
+        const { userLogin, type, petAge, petGender, breed, petSize, location } = req.body;
+        let message = '';
+        try {
+            // Connect to database
+            const db = client.db(dbName);
+            
+            // Make sure to get user login so it does not display user's listed pets
+            // Make sure the fields are inputted, if not then ignore
+            let search = { Login: { $ne: userLogin}};
+            if (type != null) search.Pet_Type = type;
+            if (petAge != null) search.Age = petAge;
+            if (petGender != null) search.Gender = petGender;
+            if (breed != null) search.Breed = breed;
+            if (petSize != null) search.Size = petSize;
+            if (location != null) search.Location = location;
+    
+            // Search using the fields provided
+            const pets = await db.collection('Pet').find(search).toArray();
+            if (pets.length === 0){
+                message = "No pets found";
+            } else {
+                message = "Pets retrieved successfully";
+            }
+            res.status(200).json({ pets: pets, message: message });
         } catch (e) {
             message = e.toString();
         }
