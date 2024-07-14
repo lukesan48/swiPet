@@ -637,8 +637,15 @@ exports.setApp = function (app, client) {
         // incoming: userLogin, petId, petName, type, petAge, petGender, color, breed, petSize, bio, contactEmail, location, images, adoptionFee
         // outgoing: message
     
-        const { userLogin, petId, petName, type, petAge, petGender, color, breed, petSize, bio, contactEmail, location, images, adoptionFee } = req.body;
+        const { userLogin, petId, petName, type, petAge, petGender, color, breed, petSize, bio, contactEmail, location, images, adoptionFee, jwtToken } = req.body;
         let message = '';
+
+        if (token.isExpired(jwtToken)) {
+            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            res.status(200).json(ret);
+            return;
+        }
+
         try {
             const db = client.db(dbName);
             const objectId = new ObjectId(petId);
@@ -685,7 +692,8 @@ exports.setApp = function (app, client) {
         } catch (e) {
           message = e.toString();
         }
-        let ret = { message: message };
+        let refreshedToken = token.refresh(jwtToken);
+        let ret = { message: message, jwtToken: refreshedToken.accessToken };
         res.status(200).json(ret);
     });
 
@@ -694,8 +702,15 @@ exports.setApp = function (app, client) {
         // incoming: userLogin, type, petAge, petGender, breed, petSize, location
         // outgoing: matching pets
           
-        const { userLogin, type, petAge, petGender, breed, petSize, location } = req.body;
+        const { userLogin, type, petAge, petGender, breed, petSize, location, jwtToken } = req.body;
         let message = '';
+
+        if (token.isExpired(jwtToken)) {
+            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            res.status(200).json(ret);
+            return;
+        }
+
         try {
             // Connect to database
             const db = client.db(dbName);
@@ -717,7 +732,8 @@ exports.setApp = function (app, client) {
             } else {
                 message = "Pets retrieved successfully";
             }
-            res.status(200).json({ pets: pets, message: message });
+            let refreshedToken = token.refresh(jwtToken);
+            res.status(200).json({ pets: pets, message: message, jwtToken: refreshedToken.accessToken });
         } catch (e) {
             message = e.toString();
         }
