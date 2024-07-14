@@ -536,9 +536,15 @@ exports.setApp = function (app, client) {
     // incoming: userLogin, petId
     // outgoing: message
         
-    const { userLogin, petId } = req.body;
+    const { userLogin, petId, jwtToken } = req.body;
     let message = '';
-        
+
+    if (token.isExpired(jwtToken)) {
+        let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+        res.status(200).json(ret);
+        return;
+    }
+
     try {
         // Connect to the database
         const db = client.db(dbName);
@@ -566,7 +572,8 @@ exports.setApp = function (app, client) {
         } catch (e) {
             message = e.toString();
         }
-        const ret = { message: message };
+        let refreshedToken = token.refresh(jwtToken);
+        const ret = { message: message, jwtToken: refreshedToken.accessToken };
         res.status(200).json(ret);
     });
     
