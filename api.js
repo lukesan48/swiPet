@@ -97,7 +97,7 @@ exports.setApp = function (app, client) {
             // If user is found... cast delete user!
             if (user) {
                 // Compare password and hashed password in database
-                const passwordMatch = bcrypt.compare(password, user.password);
+                const passwordMatch = await bcrypt.compare(password, user.password);
 
                 // If passwords match... cast delete
                 if (passwordMatch) {
