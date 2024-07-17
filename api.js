@@ -29,7 +29,7 @@ exports.setApp = function (app, client) {
 
         // Same dbName here
         const db = client.db(dbName);
-        const user = await db.collection('User').findOne({ Login: login });
+        const user = await db.collection('User').findOne({ username: login });
 
         // A user's login is found
         if (user) {
@@ -39,14 +39,18 @@ exports.setApp = function (app, client) {
                 message = "Please verify your email before logging in";
                 ret = { message: message };
             } else {
-                const passwordMatch = await bcrypt.compare(password, user.Password);
+                const passwordMatch = await bcrypt.compare(password, user.password);
 
                 // Password matches
                 if (passwordMatch) {
                     // Create JWT
-                    let jwtToken = token.createToken(user.FirstName, user.LastName, user._id);
+                    let jwtToken = token.createToken(user.firstName, user.lastName, user._id, user.username);
 
-                    ret = { id: user._id, firstName: user.FirstName, lastName: user.LastName, jwtToken: jwtToken.accessToken, message: message };
+                    // jwt testing
+                    const decodedToken = jwt.decode(jwtToken.accessToken, { complete: true });
+                    console.log(decodedToken);
+
+                    ret = { id: user._id, firstName: user.firstName, lastName: user.lastName, jwtToken: jwtToken.accessToken, message: message };
                 }
 
                 // Password doesn't match
@@ -88,12 +92,12 @@ exports.setApp = function (app, client) {
             // Search for user
             // Since hashing password, search for login only
             // password will be checked later
-            const user = await db.collection("User").findOne({ Login: login });
+            const user = await db.collection("User").findOne({ username: login });
 
             // If user is found... cast delete user!
             if (user) {
                 // Compare password and hashed password in database
-                const passwordMatch = bcrypt.compare(password, user.Password);
+                const passwordMatch = bcrypt.compare(password, user.password);
 
                 // If passwords match... cast delete
                 if (passwordMatch) {
@@ -126,22 +130,30 @@ exports.setApp = function (app, client) {
         const { login, firstName, lastName, email, phoneNumber, location, jwtToken } = req.body;
 
         let message = '';
+        let newJwtToken = jwtToken;
+        let ret = { message: message, jwtToken: newJwtToken };
 
         if (token.isExpired(jwtToken)) {
-            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            ret.message = 'The JWT is no longer valid';
+            ret.jwtToken = '';
             res.status(200).json(ret);
             return;
         }
 
+        // // jwt testing
+        // const decodedToken = jwt.decode(jwtToken, { complete: true });
+        // console.log(decodedToken);
+
         const db = client.db(dbName);
         const collection = db.collection('User');
 
-        let user = await collection.findOne({ Login: login });
+
+        let user = await collection.findOne({ username: login });
 
         // Check to see if valid user
         if (user) {
 
-            let updatedUser = { FirstName: firstName, LastName: lastName, Email: email, PhoneNumber: phoneNumber, Location: location };
+            let updatedUser = { firstName: firstName, lastName: lastName, email: email, phoneNumber: phoneNumber, address: location };
 
             // Trim empty fields from updatedUser
             // Done by stringify, which does not stringify
@@ -155,16 +167,25 @@ exports.setApp = function (app, client) {
                 const result = await collection.updateOne(
                     // Case sensitive; Login: login,
                     // not login: login
-                    { Login: login },
+                    { username: login },
                     { $set: updatedUser }
                 )
 
                 // Check to see if anything was updated
                 if (result.modifiedCount === 0) {
                     message = "No changes made to user";
+                    newJwtToken = token.refresh(jwtToken);
                 }
+                // If something updated, update jwt
                 else {
                     message = "User updated successfully";
+
+                    const newFirstName = updatedUser.firstName || user.firstName;
+                    const newLastName = updatedUser.lastName || user.lastName;
+
+                    const newToken = token.createToken(newFirstName, newLastName, user._id, user.username);
+
+                    newJwtToken = newToken.accessToken;
                 }
 
             } catch (e) {
@@ -176,8 +197,8 @@ exports.setApp = function (app, client) {
             message = "User not found";
         }
 
-        let refreshedToken = token.refresh(jwtToken);
-        const ret = { message: message, jwtToken: refreshedToken.accessToken };
+        ret.message = message;
+        ret.jwtToken = newJwtToken;
         res.status(200).json(ret);
     });
 
@@ -200,7 +221,7 @@ exports.setApp = function (app, client) {
         try {
             // findOne finds one instance, which there should only be one
             // instance of a login anyways
-            const existingUser = await db.collection('User').findOne({ Login: login });
+            const existingUser = await db.collection('User').findOne({ username: login });
 
             // If user is found, don't do anything
             if (existingUser) {
@@ -219,15 +240,15 @@ exports.setApp = function (app, client) {
 
                 // No user with login found, so make new user
                 const newUser = {
-                    FirstName: firstName,
-                    LastName: lastName,
-                    Email: email,
-                    PhoneNumber: phoneNumber,
-                    Location: location,
-                    Login: login,
-                    Password: hashedPassword,
-                    Favorites: {},
-                    Listings: {},
+                    firstName: firstName,
+                    lastName: lastName,
+                    email: email,
+                    phoneNumber: phoneNumber,
+                    address: location,
+                    username: login,
+                    password: hashedPassword,
+                    Favorites: [],
+                    Listings: [],
                     Verified: false
                 };
 
@@ -323,7 +344,7 @@ exports.setApp = function (app, client) {
 
 
         try {
-            const user = await db.collection('User').findOne({ Email: email });
+            const user = await db.collection('User').findOne({ email: email });
 
             if (!user) {
                 message = 'User not found';
@@ -401,13 +422,13 @@ exports.setApp = function (app, client) {
 
                 await db.collection('User').updateOne(
                     { _id: new ObjectId(userId) },
-                    { $set: { Password: hashedPassword } }
+                    { $set: { password: hashedPassword } }
                 );
 
                 // Update used to true
                 await db.collection('PasswordResetTokens').updateOne(
                     { token: token },
-                    { $set: { used: true }}
+                    { $set: { used: true } }
                 );
 
                 message = 'Password reset successfully';
@@ -442,10 +463,10 @@ exports.setApp = function (app, client) {
             const db = client.db(dbName);
 
             // Checks if there is a valid user to create the pet, if there is then create the pet
-            const user = await db.collection('User').findOne({ Login: userLogin });
+            const user = await db.collection('User').findOne({ username: userLogin });
             if (user) {
                 const newPet = {
-                    Login: userLogin,
+                    username: userLogin,
                     Pet_Name: petName,
                     Pet_Type: type,
                     Age: petAge,
@@ -466,7 +487,7 @@ exports.setApp = function (app, client) {
 
                 // Updates Listing of user who created the pet with the pet's ObjectId
                 await db.collection('User').updateOne(
-                    { Login: userLogin },
+                    { username: userLogin },
                     { $push: { Listings: petId } }
                 );
                 message = "Pet Created";
@@ -497,12 +518,16 @@ exports.setApp = function (app, client) {
             return;
         }
 
+        // // jwt testing
+        // const decodedToken = jwt.decode(jwtToken, { complete: true });
+        // console.log(decodedToken);
+
         try {
             // Connect to the database
             const db = client.db(dbName);
 
             // Checks if there is a valid user
-            const user = await db.collection('User').findOne({ Login: userLogin });
+            const user = await db.collection('User').findOne({ username: userLogin });
             if (user) {
                 const objectId = new ObjectId(petId);
 
@@ -512,7 +537,7 @@ exports.setApp = function (app, client) {
                 // If there is a valid user and a valid pet, add that pet to the user's favorited pets
                 if (pet) {
                     await db.collection('User').updateOne(
-                        { Login: userLogin },
+                        { username: userLogin },
                         { $addToSet: { Favorites: objectId } }
                     );
                     message = "Pet added to favorites";
@@ -533,36 +558,36 @@ exports.setApp = function (app, client) {
 
     // API to remove a pet from a user's favorites list
     app.post('/api/unfavorite', async (req, res) => {
-    // incoming: userLogin, petId
-    // outgoing: message
-        
-    const { userLogin, petId, jwtToken } = req.body;
-    let message = '';
+        // incoming: userLogin, petId
+        // outgoing: message
 
-    if (token.isExpired(jwtToken)) {
-        let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
-        res.status(200).json(ret);
-        return;
-    }
+        const { userLogin, petId, jwtToken } = req.body;
+        let message = '';
 
-    try {
-        // Connect to the database
-        const db = client.db(dbName);
-        
-        // Check if the user exists
-        const user = await db.collection('User').findOne({ Login: userLogin });
-        if (user) {
-            const objectId = new ObjectId(petId);
-        
-            // Check if the pet is in the user's favorites list
-            const isFavorited = user.Favorites.some(favorite => favorite.equals(objectId));
-            if (isFavorited) {
-                // Remove the pet from the user's favorites list
-                await db.collection('User').updateOne(
-                    { Login: userLogin },
-                    { $pull: { Favorites: objectId } }
-                );
-                message = "Pet removed from favorites";
+        if (token.isExpired(jwtToken)) {
+            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            res.status(200).json(ret);
+            return;
+        }
+
+        try {
+            // Connect to the database
+            const db = client.db(dbName);
+
+            // Check if the user exists
+            const user = await db.collection('User').findOne({ username: userLogin });
+            if (user) {
+                const objectId = new ObjectId(petId);
+
+                // Check if the pet is in the user's favorites list
+                const isFavorited = user.Favorites.some(favorite => favorite.equals(objectId));
+                if (isFavorited) {
+                    // Remove the pet from the user's favorites list
+                    await db.collection('User').updateOne(
+                        { username: userLogin },
+                        { $pull: { Favorites: objectId } }
+                    );
+                    message = "Pet removed from favorites";
                 } else {
                     message = "Pet is not in the favorites list";
                 }
@@ -576,7 +601,7 @@ exports.setApp = function (app, client) {
         const ret = { message: message, jwtToken: refreshedToken.accessToken };
         res.status(200).json(ret);
     });
-    
+
     // API to delete a pet and the listing of the original user who uploaded the pet (as well as from the favorites list of anyone who has that pet favorited)
     app.post('/api/deletepet', async (req, res) => {
         // incoming: userLogin, petId
@@ -594,7 +619,7 @@ exports.setApp = function (app, client) {
         try {
             // Connect to database
             const db = client.db(dbName);
-            const user = await db.collection('User').findOne({ Login: userLogin });
+            const user = await db.collection('User').findOne({ username: userLogin });
 
             // If there is a valid user, proceed to see if the pet is in the database
             if (user) {
@@ -605,7 +630,7 @@ exports.setApp = function (app, client) {
                 if (pet) {
 
                     // If the user that created the pet does not matche with the user that was inputted, return error
-                    if (pet.Login !== userLogin) {
+                    if (pet.username !== userLogin) {
                         message = "You do not have permission to delete this pet";
                     } else {
                         // Delete from the pet collection
@@ -613,7 +638,7 @@ exports.setApp = function (app, client) {
 
                         // Update the creator's listings to remove it
                         await db.collection('User').updateOne(
-                            { Login: userLogin },
+                            { username: userLogin },
                             { $pull: { Listings: pet._id } }
                         );
 
@@ -643,7 +668,7 @@ exports.setApp = function (app, client) {
     app.post("/api/updatepet", async (req, res, next) => {
         // incoming: userLogin, petId, petName, type, petAge, petGender, color, breed, petSize, bio, contactEmail, location, images, adoptionFee
         // outgoing: message
-    
+
         const { userLogin, petId, petName, type, petAge, petGender, color, breed, petSize, bio, contactEmail, location, images, adoptionFee, jwtToken } = req.body;
         let message = '';
 
@@ -657,13 +682,13 @@ exports.setApp = function (app, client) {
             const db = client.db(dbName);
             const objectId = new ObjectId(petId);
             const pet = await db.collection('Pet').findOne({ _id: objectId });
-    
+
             // Check to see if there is a valid pet and the original user is the one trying to delete it
             if (pet) {
-                if (pet.Login !== userLogin) {
+                if (pet.username !== userLogin) {
                     message = "You do not have permission to update this pet";
                 } else {
-                    let updatedPet = { 
+                    let updatedPet = {
                         Pet_Name: petName,
                         Pet_Type: type,
                         Age: petAge,
@@ -677,15 +702,15 @@ exports.setApp = function (app, client) {
                         Images: images || [],
                         AdoptionFee: adoptionFee
                     };
-    
+
                     // If fields are left blank, keep original data for those fields
                     updatedPet = JSON.parse(JSON.stringify(updatedPet));
-    
+
                     // Set the updated pet description
                     const result = await db.collection('Pet').updateOne(
                         { _id: objectId },
                         { $set: updatedPet });
-    
+
                     // Check to see if anything was updated
                     if (result.modifiedCount === 0) {
                         message = "No changes made to the pet information";
@@ -697,7 +722,7 @@ exports.setApp = function (app, client) {
                 message = "Pet not found";
             }
         } catch (e) {
-          message = e.toString();
+            message = e.toString();
         }
         let refreshedToken = token.refresh(jwtToken);
         let ret = { message: message, jwtToken: refreshedToken.accessToken };
@@ -708,7 +733,7 @@ exports.setApp = function (app, client) {
     app.post("/api/searchpet", async (req, res, next) => {
         // incoming: userLogin, type, petAge, petGender, breed, petSize, location
         // outgoing: matching pets
-          
+
         const { userLogin, type, petAge, petGender, breed, petSize, location, jwtToken } = req.body;
         let message = '';
 
@@ -721,20 +746,20 @@ exports.setApp = function (app, client) {
         try {
             // Connect to database
             const db = client.db(dbName);
-            
+
             // Make sure to get user login so it does not display user's listed pets
             // Make sure the fields are inputted, if not then ignore
-            let search = { Login: { $ne: userLogin}};
+            let search = { username: { $ne: userLogin } };
             if (type != null) search.Pet_Type = type;
             if (petAge != null) search.Age = petAge;
             if (petGender != null) search.Gender = petGender;
             if (breed != null) search.Breed = breed;
             if (petSize != null) search.Size = petSize;
             if (location != null) search.Location = location;
-    
+
             // Search using the fields provided
             const pets = await db.collection('Pet').find(search).toArray();
-            if (pets.length === 0){
+            if (pets.length === 0) {
                 message = "No pets found";
             } else {
                 message = "Pets retrieved successfully";
