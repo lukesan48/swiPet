@@ -4,6 +4,7 @@ const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
 require('mongodb');
 require('express');
+const allowedColors = ["Brown", "Black", "White","Gold", "Gray", "Red", "Yellow", "Blue", "Orange", "Purple", "Green" ];
 
 exports.setApp = function (app, client) {
 
