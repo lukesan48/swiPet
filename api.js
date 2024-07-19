@@ -18,7 +18,7 @@ exports.setApp = function (app, client) {
     // Modified login api
     app.post('/api/login', async (req, res, next) => {
         // incoming: login, password
-        // outgoing: id, firstName, lastName, error
+        // outgoing: jwtToken, message
 
         // Need to initialize ret outside of
         // conditional statements...
@@ -51,7 +51,7 @@ exports.setApp = function (app, client) {
                     // const decodedToken = jwt.decode(jwtToken.accessToken, { complete: true });
                     // console.log(decodedToken);
 
-                    ret = { id: user._id, firstName: user.firstName, lastName: user.lastName, jwtToken: jwtToken.accessToken, message: message };
+                    ret = { jwtToken: jwtToken.accessToken, message: message };
                 }
 
                 // Password doesn't match
@@ -127,12 +127,12 @@ exports.setApp = function (app, client) {
     // Update user api - not including password
     app.post("/api/updateUser", async (req, res, next) => {
         // incoming: login, firstName, lastName, email, phoneNumber, location
-        // outgoing: (new/same - firstName, lastName, email, phoneNumber, location), message
+        // outgoing: jwtToken, message
         const { userLogin, firstName, lastName, email, phoneNumber, location, jwtToken } = req.body;
 
         let message = '';
         let newJwtToken = jwtToken;
-        let ret = { message: message, jwtToken: newJwtToken };
+        let ret = { jwtToken: newJwtToken, message: message };
 
         if (token.isExpired(jwtToken)) {
             ret.message = 'The JWT is no longer valid';
@@ -209,7 +209,7 @@ exports.setApp = function (app, client) {
     // No JWT for register, since ya know, register
     app.post("/api/register", async (req, res, next) => {
         // incoming: firstName, lastName, login, password
-        // outgoing: id, firstName, lastName, email, message
+        // outgoing: message
         const { firstName, lastName, email, phoneNumber, location, userLogin, password } = req.body;
         let message = '';
         let id = -1;
@@ -291,7 +291,7 @@ exports.setApp = function (app, client) {
         }
 
         // probably dont want  to return login and password here...
-        const ret = { id: id, firstName: firstName, lastName: lastName, email: email, message: message }
+        const ret = { message: message }
         res.status(200).json(ret);
     });
 
