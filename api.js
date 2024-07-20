@@ -445,46 +445,61 @@ exports.setApp = function (app, client) {
 
     // API to add new pets to specific users and update their listings to reflect the new pet
     app.post('/api/addpet', async (req, res) => {
-        // incoming: userLogin, petName, type, petAge, petGender, color, breed, petSize, bio, contactEmail, location, images, adoptionFee
+        // incoming: userLogin, petName, type, petAge, petGender, color, breed, petSize, bio, prompt1, prompt2, contactEmail, location, images, adoptionFee
         // outgoing: message, petId
           
-        const { userLogin, petName, type, petAge, petGender, colors, breed, petSize, bio, contactEmail, location, images, adoptionFee, jwtToken } = req.body;
+        const { userLogin, petName, type, petAge, petGender, colors, breed, petSize, bio, prompt1, prompt2, contactEmail, location, images, adoptionFee, jwtToken } = req.body;
         let message = '';
         let petId = null;
+	let imageMessage = '';
 
-	    if (token.isExpired(jwtToken)) {
+	if (token.isExpired(jwtToken)) {
             let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
             res.status(200).json(ret);
             return;
         }
-          	
         try {
             // Connect to database
             const db = client.db(dbName);
             
-	        // Checks if there is a valid user to create the pet, if there is then create the pet
+	    // Checks if there is a valid user to create the pet, if there is then create the pet
             const user = await db.collection('User').findOne({ username: userLogin });
             if (user) {
                 // Makes sure the colors are correct and picked out of the predfined list
+		// If no colors are provided, add one empty placeholder
                 const validColors = Array.isArray(colors) ? colors.filter(color => allowedColors.includes(color)) : [];
-                
+		if (validColors.length === 0) validColors.push('');
+
+		// Ensures if no images were provided, three empty placeholders are provided
+		// If some images were provided, it would add those images and place empty placeholders when needed
+                const petImages = Array.isArray(images) ? images.slice(0,3) : [];
+                while (petImages.length < 3){
+                  petImages.push('');
+                }
+
+		// Maximum amount of pictures is 3, so if someone tries to add more they can't
+                if (Array.isArray(images) && images.length > 3){
+                  imageMessage = "Only the first 3 images were added.";
+                }
                 const newPet = {
-                    username: userLogin,
-                    Pet_Name: petName,
-                    Pet_Type: type,
-                    Age: petAge,
-                    Gender: petGender,
-                    Color: validColors,
-                    Breed: breed,
-                    Size: petSize,
-                    Bio: bio,
-                    Contact_Email: contactEmail,
-                    Location: location,
-                    Images: images || [],
-                    AdoptionFee: adoptionFee
+                  username: userLogin || '',
+                  Pet_Name: petName || '',
+                  Pet_Type: type || '',
+                  Age: petAge || '',
+                  Gender: petGender || '',
+                  Color: validColors,
+                  Breed: breed || '',
+                  Size: petSize || '',
+                  Bio: bio || '',
+		  Prompt1: prompt1 || '',
+		  Prompt2: prompt2 || '',
+                  Contact_Email: contactEmail || '',
+                  Location: location || '',
+                  Images: petImages,
+                  AdoptionFee: adoptionFee || ''
                 };
 
-		        // Insert new pet and their descriptions into database
+		// Insert new pet and their descriptions into database
                 const result = await db.collection('Pet').insertOne(newPet);
           
                 // Needed to get the pet's ObjectId
@@ -503,10 +518,10 @@ exports.setApp = function (app, client) {
               message = e.toString();
             }
         let refreshedToken = token.refresh(jwtToken);
-       	const ret = { message: message, petId: petId, jwtToken: refreshedToken.accessToken };
+       	const ret = { imageMessage: imageMessage, message: message, petId: petId, jwtToken: refreshedToken.accessToken };
         res.status(200).json(ret);
     });
-
+	
     // API to add a pet to a user's favorites list
     app.post('/api/addfavorite', async (req, res) => {
 
@@ -670,11 +685,12 @@ exports.setApp = function (app, client) {
 
     // API endpoint to update pet listings (only people who created are able to edit it)
     app.post("/api/updatepet", async (req, res, next) => {
-        // incoming: userLogin, petId, petName, type, petAge, petGender, colors, breed, petSize, bio, contactEmail, location, images, adoptionFee
+        // incoming: userLogin, petId, petName, type, petAge, petGender, colors, breed, petSize, bio, prompt1, prompt2, contactEmail, location, images, adoptionFee
         // outgoing: message
 
-        const { userLogin, petId, petName, type, petAge, petGender, colors, breed, petSize, bio, contactEmail, location, images, adoptionFee, jwtToken } = req.body;
+        const { userLogin, petId, petName, type, petAge, petGender, colors, breed, petSize, bio, prompt1, prompt2, contactEmail, location, images, adoptionFee, jwtToken } = req.body;
         let message = '';
+	let imageMessage = '';
 	
         if (token.isExpired(jwtToken)) {
             let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
@@ -682,6 +698,7 @@ exports.setApp = function (app, client) {
             return;
         }
         try {
+	    // Connect to database and find the pet from their petId
             const db = client.db(dbName);
             const objectId = new ObjectId(petId);
             const pet = await db.collection('Pet').findOne({ _id: objectId });
@@ -691,6 +708,8 @@ exports.setApp = function (app, client) {
                 if (pet.username !== userLogin) {
                     message = "You do not have permission to update this pet";
                 } else {
+		    
+                    // Updated pet with fields that need to be updated
                     let updatedPet = { 
                         Pet_Name: petName,
                         Pet_Type: type,
@@ -699,11 +718,25 @@ exports.setApp = function (app, client) {
                         Breed: breed,
                         Size: petSize,
                         Bio: bio,
+			Prompt1: prompt1,
+			Prompt2: prompt2,
                         Contact_Email: contactEmail,
                         Location: location,
-                        Images: images || [],
                         AdoptionFee: adoptionFee
                     };
+	
+		    // If images is included, then update, otherwise leave it the same as before
+		    // Max of 3 images, will create emtpy placeholders if less than 3 images are provided
+		    if(images !== undefined){
+                    	let petImages = Array.isArray(images) ? images.slice(0,3) : [];
+          		while (petImages.length < 3){
+                    		petImages.push('');
+                    	}
+                    	updatedPet.Images = petImages;
+                    	if (Array.isArray(images) && images.length > 3){
+                    		imageMessage = "Only the first 3 images were added.";
+                    	}
+              	    }
 
                     // Makes sure the colors are correct and picked out of the predfined list, then adds to updatedPet
                     const validColors = Array.isArray(colors) ? colors.filter(color => allowedColors.includes(color)) : [];
@@ -734,7 +767,7 @@ exports.setApp = function (app, client) {
             message = e.toString();
         }
         let refreshedToken = token.refresh(jwtToken);
-        let ret = { message: message, jwtToken: refreshedToken.accessToken };
+        let ret = { imageMessage: imageMessage, message: message, jwtToken: refreshedToken.accessToken };
         res.status(200).json(ret);
     });
 
@@ -747,7 +780,7 @@ exports.setApp = function (app, client) {
         let message = '';
         
         if (token.isExpired(jwtToken)) {
-            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            let ret = { message: 'The JWT is no longer valid', jwtToken: jwtToken };
             res.status(200).json(ret);
             return;
         }
@@ -755,16 +788,25 @@ exports.setApp = function (app, client) {
         try {
             // Connect to database
             const db = client.db(dbName);
+	    
+	    // Used to find the user so that we can check their favorites list
+	    const user = await db.collection('User').findOne({ username: userLogin });
+            if (!user) {
+            	return res.status(200).json({ message: "User not found" });
+            }
+		
+	    // Checks for pets in the user's favorites list so that they don't show up in the search
+	    const userFavorites = user.Favorites.map(favorite => new ObjectId(favorite));
 
             // Make sure to get user login so it does not display user's listed pets
             // Make sure the fields are inputted, if not then ignore
-            let search = { username: { $ne: userLogin}};
-            if (type != null) search.Pet_Type = type;
-            if (petAge != null) search.Age = petAge;
-            if (petGender != null) search.Gender = petGender;
-            if (breed != null) search.Breed = breed;
-            if (petSize != null) search.Size = petSize;
-            if (location != null) search.Location = location;
+            let search = { Login: { $ne: userLogin }, _id: { $nin: userFavorites } };
+            if (type != "") search.Pet_Type = type;
+            if (petAge != "") search.Age = petAge;
+            if (petGender != "") search.Gender = petGender;
+            if (breed != "") search.Breed = breed;
+            if (petSize != "") search.Size = petSize;
+            if (location != "") search.Location = location;
       
             // If the color is part of the allowed colors, search for pets of that color
             if (Array.isArray(colors) && colors.length > 0) {
@@ -787,5 +829,117 @@ exports.setApp = function (app, client) {
         } catch (e) {
             message = e.toString();
         }
+    });
+
+    // Getters for user's listings/favorites/user info
+    app.post('/api/getUserListings', async (req, res) => {
+        // incoming: userLogin, jwtToken
+        // outgoing: listings, message, jwtToken
+
+        const { userLogin, jwtToken } = req.body;
+        let message = '';
+        let listings = [];
+
+        if (token.isExpired(jwtToken)) {
+            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            res.status(200).json(ret);
+            return;
+        }
+
+        try {
+
+            const db = client.db(dbName);
+            // Find user
+            const user = await db.collection('User').findOne({ username: userLogin });
+
+            if (user) {
+                // Look for pets in user's listings
+                listings = await await db.collection('Pet').find(
+                    { _id: { $in: user.Listings } }).toArray();
+                message = 'Listings retrieved successfully';
+            }
+            else {
+                message = 'User not found';
+            }
+
+        } catch (e) {
+            message = e.toString();
+        }
+
+        let refreshedToken = token.refresh(jwtToken);
+        const ret = { listings: listings, message: message, jwtToken: refreshedToken.accessToken };
+        res.status(200).json(ret);
+    });
+    app.post('/api/getUserFavorites', async (req, res) => {
+        // incoming: userLogin, jwtToken
+        // outgoing: favorites, message, jwtToken
+
+        const { userLogin, jwtToken } = req.body;
+        let message = '';
+        let favorites = [];
+
+        if (token.isExpired(jwtToken)) {
+            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            res.status(200).json(ret);
+            return;
+        }
+
+        try {
+
+            const db = client.db(dbName);
+            // Find user
+            const user = await db.collection('User').findOne({ username: userLogin });
+
+            if (user) {
+                // Look for pets in user's favorites
+                favorites = await await db.collection('Pet').find(
+                    { _id: { $in: user.Favorites } }).toArray();
+                message = 'Favorites retrieved successfully';
+            }
+            else {
+                message = 'User not found';
+            }
+
+        } catch (e) {
+            message = e.toString();
+        }
+
+        let refreshedToken = token.refresh(jwtToken);
+        const ret = { favorites: favorites, message: message, jwtToken: refreshedToken.accessToken };
+        res.status(200).json(ret);
+    });
+    app.post('/api/getUserInfo', async (req, res) => {
+        // incoming: userLogin, jwtToken
+        // outgoing: userInfo, message
+
+        const { userLogin, jwtToken } = req.body;
+        let message = '';
+        let userInfo = {};
+
+        if (token.isExpired(jwtToken)) {
+            let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+            res.status(200).json(ret);
+            return;
+        }
+
+        try {
+            const db = client.db(dbName);
+            const user = await db.collection('User').findOne(
+                { username: userLogin }, { projection: { password: 0 } });
+
+            // If user exists, retrieve information
+            if (user) {
+                userInfo = user;
+                message = 'User information retrieved successfully';
+            } else {
+                message = 'User not found';
+            }
+        } catch (e) {
+            message = e.toString();
+        }
+
+        let refreshedToken = token.refresh(jwtToken);
+        const ret = { userInfo: userInfo, message: message, jwtToken: refreshedToken.accessToken };
+        res.status(200).json(ret);
     });
 }
