@@ -3,8 +3,13 @@ const { ObjectId } = require('mongodb');
 const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
 require('mongodb');
-require('express');
+const express = require('express');
 const allowedColors = ["Brown", "Black", "White", "Gold", "Gray", "Red", "Yellow", "Blue", "Orange", "Purple", "Green"];
+// JWT middleware
+const token = require('./createJWT.js');
+// multer middleware
+const { uploadSingle, uploadMultiple } = require('./multerConfig');
+
 
 exports.setApp = function (app, client) {
 
@@ -12,8 +17,9 @@ exports.setApp = function (app, client) {
     // database to be used
     const dbName = 'swiPet';
 
-    // JWT 'middleware'
-    const token = require('./createJWT.js');
+
+    // Serve uploaded files statically from server
+    app.use('/uploads', express.static('uploads'));
 
     // Modified login api
     app.post('/api/login', async (req, res, next) => {
@@ -155,11 +161,6 @@ exports.setApp = function (app, client) {
         if (user) {
 
             let updatedUser = { firstName: firstName, lastName: lastName, email: email, phoneNumber: phoneNumber, address: location };
-
-            // If new user image
-            if (userImage) {
-                updatedUser.userImage = userImage;
-            }
 
             // Trim empty fields from updatedUser
             // Done by stringify, which does not stringify
@@ -1043,4 +1044,71 @@ swiPet`
         res.status(200).json(ret);
     });
 
+
+    // Upload image endpoints
+    app.post('/api/uploadUserImage', (req, res) => {
+
+        uploadSingle(req, res, (error) => {
+            const { jwtToken } = req.body;
+
+            if (token.isExpired(jwtToken)) {
+                console.log("jwt expired?");
+                let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+                res.status(200).json(ret);
+                return;
+            }
+
+            if (error) {
+                res.status(400).json({ message: error });
+            }
+            else {
+                if (req.file == undefined) {
+                    res.status(400).json({ message: 'No file selected' });
+                }
+                else {
+                    const filePath = `uploads/${req.file.filename}`;
+                    let refreshedToken = token.refresh(jwtToken);
+                    
+                    let ret = {
+                        message: 'File uploaded',
+                        filePath: filePath,
+                        jwtToken: refreshedToken.accessToken
+                    }
+                    res.status(200).json({ret});
+                }
+            }
+        });
+    });
+
+    app.post('/api/uploadPetImages', (req, res) => {
+
+        uploadMultiple(req, res, (error) => {
+            const { jwtToken } = req.body;
+    
+            if (!jwtToken || token.isExpired(jwtToken)) {
+                let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+                res.status(200).json(ret);
+                return;
+            }
+    
+            if (error) {
+                res.status(400).json({ message: error });
+            } else {
+                if (req.files == undefined || req.files.length === 0) {
+                    res.status(400).json({ message: 'No files selected' });
+                } else {
+                    // console.log("Uploaded files:", req.files);
+                    const filePaths = req.files.map(file => `uploads/${file.filename}`);
+                    let refreshedToken = token.refresh(jwtToken);
+    
+                    let ret = {
+                        message: 'Files uploaded',
+                        filePaths: filePaths,
+                        jwtToken: refreshedToken.accessToken
+                    };
+                    res.status(200).json(ret);
+                }
+            }
+        });
+    });
 }
