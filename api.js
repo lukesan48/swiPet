@@ -996,7 +996,7 @@ swiPet`
 
             if (user) {
                 // Look for pets in user's favorites
-                favorites = await await db.collection('Pet').find(
+                favorites = await db.collection('Pet').find(
                     { _id: { $in: user.Favorites } }).toArray();
                 message = 'Favorites retrieved successfully';
             }
