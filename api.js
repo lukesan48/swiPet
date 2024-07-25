@@ -281,7 +281,7 @@ exports.setApp = function (app, client) {
                 });
 
                 // The email itself
-                const verificationLink = `http://localhost:5000/api/verifyEmail?token=${token}`;
+                const verificationLink = `http://swipet-becad9ab7362.herokuapp.com/api/verifyEmail?token=${token}`;
                 const mailOptions = {
                     from: process.env.EMAIL_USER,
                     to: email,
@@ -379,7 +379,7 @@ exports.setApp = function (app, client) {
                     }
                 });
 
-                const resetLink = `http://localhost:5000/api/resetPassword?token=${token}`;
+                const resetLink = `http://swipet-becad9ab7362.herokuapp.com/api/resetPassword?token=${token}`;
                 const mailOptions = {
                     from: process.env.EMAIL_USER,
                     to: email,
