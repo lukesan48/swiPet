@@ -808,10 +808,11 @@ exports.setApp = function (app, client) {
             }
             // Checks for pets in the user's favorites list so that they don't show up in the search
             const userFavorites = user.Favorites.map(favorite => new ObjectId(favorite));
+            const userListings = user.Listings.map(listing => new ObjectId(listing));
 
             // Make sure to get user login so it does not display user's listed pets
             // Make sure the fields are inputted, if not then ignore
-            let search = { Login: { $ne: userLogin }, _id: { $nin: userFavorites } };
+            let search = { Login: { $ne: userLogin }, _id: { $nin: userFavorites }, _id: { $nin: userListings } };
 
             if (type != "") search.Pet_Type = type;
             if (petAge != "") search.Age = petAge;
