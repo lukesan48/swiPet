@@ -101,14 +101,29 @@ exports.setApp = function (app, client) {
             // password will be checked later
             const user = await db.collection("User").findOne({ username: userLogin });
 
-            // If user is found... cast delete user!
             if (user) {
                 // Compare password and hashed password in database
                 const passwordMatch = await bcrypt.compare(password, user.password);
 
                 // If passwords match... cast delete
                 if (passwordMatch) {
-                    const result = db.collection("User").deleteOne({ _id: user._id });
+                    // Make sure to delete user's listings
+                    const userPets = user.Listings;
+
+                    if (userPets && userPets.length > 0) {
+                        await db.collection("Pet").deleteMany({
+                            _id: { $in: userPets }
+                        });
+
+                        // Also remove from other's favorites
+                        await db.collection("User").updateMany(
+                            { Favorites: { $in: userPets } },
+                            { $pull: { Favorites: { $in: userPets } } }
+                        );
+
+                    }
+
+                    await db.collection("User").deleteOne({ _id: user._id });
                     message = "User deleted";
                 }
 
@@ -123,10 +138,8 @@ exports.setApp = function (app, client) {
             message = e.toString();
         }
 
-        // Refresh JWT
-        let refreshedToken = token.refresh(jwtToken);
-
-        let ret = { message: message, jwtToken: refreshedToken };
+        // No need for anymore jwt's
+        let ret = { message: message };
         res.status(200).json(ret);
     });
 
@@ -957,7 +970,7 @@ swiPet`
 
             if (user) {
                 // Look for pets in user's listings
-                listings = await await db.collection('Pet').find(
+                listings = await db.collection('Pet').find(
                     { _id: { $in: user.Listings } }).toArray();
                 message = 'Listings retrieved successfully';
             }
@@ -996,7 +1009,7 @@ swiPet`
 
             if (user) {
                 // Look for pets in user's favorites
-                favorites = await db.collection('Pet').find(
+                favorites = await await db.collection('Pet').find(
                     { _id: { $in: user.Favorites } }).toArray();
                 message = 'Favorites retrieved successfully';
             }
@@ -1114,6 +1127,5 @@ swiPet`
             }
         });
     });
-
 
 }
