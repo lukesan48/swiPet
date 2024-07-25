@@ -51,7 +51,7 @@ exports.setApp = function (app, client) {
                 // Password matches
                 if (passwordMatch) {
                     // Create JWT
-                    let jwtToken = token.createToken(user.firstName, user.lastName, user._id, user.username);
+                    let jwtToken = token.createToken(user.firstName, user.lastName, user._id, user.username, user.email);
 
                     // // jwt testing
                     // const decodedToken = jwt.decode(jwtToken.accessToken, { complete: true });
@@ -268,7 +268,7 @@ exports.setApp = function (app, client) {
                 });
 
                 // The email itself
-                const verificationLink = `https://swipet-becad9ab7362.herokuapp.com/api/verifyEmail?token=${token}`;
+                const verificationLink = `http://localhost:5000/api/verifyEmail?token=${token}`;
                 const mailOptions = {
                     from: process.env.EMAIL_USER,
                     to: email,
@@ -366,7 +366,7 @@ exports.setApp = function (app, client) {
                     }
                 });
 
-                const resetLink = `https://swipet-becad9ab7362.herokuapp.com/api/resetPassword?token=${token}`;
+                const resetLink = `http://localhost:5000/api/resetPassword?token=${token}`;
                 const mailOptions = {
                     from: process.env.EMAIL_USER,
                     to: email,
@@ -808,11 +808,10 @@ exports.setApp = function (app, client) {
             }
             // Checks for pets in the user's favorites list so that they don't show up in the search
             const userFavorites = user.Favorites.map(favorite => new ObjectId(favorite));
-            const userListings = user.Listings.map(listing => new ObjectId(listing));
 
             // Make sure to get user login so it does not display user's listed pets
             // Make sure the fields are inputted, if not then ignore
-            let search = { Login: { $ne: userLogin }, _id: { $nin: userFavorites }, _id: { $nin: userListings } };
+            let search = { Login: { $ne: userLogin }, _id: { $nin: userFavorites } };
 
             if (type != "") search.Pet_Type = type;
             if (petAge != "") search.Age = petAge;
@@ -1048,5 +1047,73 @@ swiPet`
         const ret = { userInfo: userInfo, message: message, jwtToken: refreshedToken.accessToken };
         res.status(200).json(ret);
     });
+
+
+    // Upload image endpoints
+    app.post('/api/uploadUserImage', (req, res) => {
+
+        uploadSingle(req, res, (error) => {
+            const { jwtToken } = req.body;
+
+            if (token.isExpired(jwtToken)) {
+                let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+                res.status(200).json(ret);
+                return;
+            }
+
+            if (error) {
+                res.status(400).json({ message: error });
+            }
+            else {
+                if (req.file == undefined) {
+                    res.status(400).json({ message: 'No file selected' });
+                }
+                else {
+                    const filePath = `uploads/${req.file.filename}`;
+                    let refreshedToken = token.refresh(jwtToken);
+
+                    let ret = {
+                        message: 'File uploaded',
+                        filePath: filePath,
+                        jwtToken: refreshedToken.accessToken
+                    }
+                    res.status(200).json({ ret });
+                }
+            }
+        });
+    });
+
+    app.post('/api/uploadPetImages', (req, res) => {
+
+        uploadMultiple(req, res, (error) => {
+            const { jwtToken } = req.body;
+
+            if (!jwtToken || token.isExpired(jwtToken)) {
+                let ret = { message: 'The JWT is no longer valid', jwtToken: '' };
+                res.status(200).json(ret);
+                return;
+            }
+
+            if (error) {
+                res.status(400).json({ message: error });
+            } else {
+                if (req.files == undefined || req.files.length === 0) {
+                    res.status(400).json({ message: 'No files selected' });
+                } else {
+                    // console.log("Uploaded files:", req.files);
+                    const filePaths = req.files.map(file => `uploads/${file.filename}`);
+                    let refreshedToken = token.refresh(jwtToken);
+
+                    let ret = {
+                        message: 'Files uploaded',
+                        filePaths: filePaths,
+                        jwtToken: refreshedToken.accessToken
+                    };
+                    res.status(200).json(ret);
+                }
+            }
+        });
+    });
+
 
 }
