@@ -222,6 +222,7 @@ exports.setApp = function (app, client) {
         const { firstName, lastName, email, phoneNumber, location, userLogin, password, userImage } = req.body;
         let message = '';
         let id = -1;
+        let token = '';
 
         // Forgot to add connection...
         const db = client.db(dbName);
@@ -267,7 +268,7 @@ exports.setApp = function (app, client) {
                 id = result.insertedId;
 
                 // Generate email verification token
-                const token = jwt.sign({ userId: id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+                token = jwt.sign({ userId: id }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
                 // Setting up email for sending verification...
                 const transporter = nodemailer.createTransport({
@@ -281,7 +282,7 @@ exports.setApp = function (app, client) {
                 });
 
                 // The email itself
-                const verificationLink = `http://swipet-becad9ab7362.herokuapp.com/api/verifyEmail?token=${token}`;
+                const verificationLink = `http://localhost:5000/api/verifyEmail?token=${token}`;
                 const mailOptions = {
                     from: process.env.EMAIL_USER,
                     to: email,
@@ -301,7 +302,7 @@ exports.setApp = function (app, client) {
         }
 
         // probably dont want  to return login and password here...
-        const ret = { message: message }
+        const ret = { message: message, token: token }
         res.status(200).json(ret);
     });
 
@@ -379,7 +380,7 @@ exports.setApp = function (app, client) {
                     }
                 });
 
-                const resetLink = `http://swipet-becad9ab7362.herokuapp.com/api/resetPassword?token=${token}`;
+                const resetLink = `http://localhost:5000/api/resetPassword?token=${token}`;
                 const mailOptions = {
                     from: process.env.EMAIL_USER,
                     to: email,
@@ -803,7 +804,7 @@ exports.setApp = function (app, client) {
 
         const { userLogin, type, petAge, petGender, colors, breed, petSize, location, jwtToken } = req.body;
         let message = '';
-        
+
         if (token.isExpired(jwtToken)) {
             let ret = { message: 'The JWT is no longer valid', jwtToken: jwtToken };
             res.status(200).json(ret);
@@ -813,25 +814,18 @@ exports.setApp = function (app, client) {
         try {
             // Connect to database
             const db = client.db(dbName);
-    
-    // Used to find the user so that we can check their favorites list
-    const user = await db.collection('User').findOne({ username: userLogin });
+
+            // Used to find the user so that we can check their favorites list
+            const user = await db.collection('User').findOne({ username: userLogin });
             if (!user) {
-            return res.status(200).json({ message: "User not found" });
+                return res.status(200).json({ message: "User not found" });
             }
-    // Checks for pets in the user's favorites list so that they don't show up in the search
-    const userFavorites = user.Favorites.map(favorite => new ObjectId(favorite));
-    const userListings = user.Listings.map(listing => new ObjectId(listing));
+            // Checks for pets in the user's favorites list so that they don't show up in the search
+            const userFavorites = user.Favorites.map(favorite => new ObjectId(favorite));
 
             // Make sure to get user login so it does not display user's listed pets
             // Make sure the fields are inputted, if not then ignore
-            let search = { 
-                Login: { $ne: userLogin }, 
-                _id: { 
-                    $nin: [...userFavorites, ...userListings] // Exclude both favorites and user's listings
-                }
-            };
-    
+            let search = { Login: { $ne: userLogin }, _id: { $nin: userFavorites } };
 
             if (type != "") search.Pet_Type = type;
             if (petAge != "") search.Age = petAge;
@@ -839,19 +833,19 @@ exports.setApp = function (app, client) {
             if (breed != "") search.Breed = breed;
             if (petSize != "") search.Size = petSize;
             if (location != "") search.Location = location;
-      
+
             // If the color is part of the allowed colors, search for pets of that color
             if (Array.isArray(colors) && colors.length > 0) {
                 const validColors = colors.filter(color => allowedColors.includes(color));
                 if (validColors.length > 0) {
                     // Searches for the color
-                    search.Color = { $in: validColors }; 
-                } 
-            } 
-      
+                    search.Color = { $in: validColors };
+                }
+            }
+
             // Search using the fields provided
             const pets = await db.collection('Pet').find(search).toArray();
-            if (pets.length === 0){
+            if (pets.length === 0) {
                 message = "No pets found";
             } else {
                 message = "Pets retrieved successfully";
@@ -862,6 +856,7 @@ exports.setApp = function (app, client) {
             message = e.toString();
         }
     });
+
 
     // pet inquiry api
     app.post('/api/sendInquiry', async (req, res, next) => {
